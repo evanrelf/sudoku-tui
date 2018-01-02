@@ -1,6 +1,22 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Sudoku where
+module Sudoku
+  ( Cell(..)
+  , Region
+  , Grid
+  , Game(..)
+  , Direction(..)
+  , cursor
+  , grid
+  , mkGame
+  , moveCursor
+  , answerCell
+  , toggleNoteCell
+  , clearCell
+  , group
+  , getRegion
+  , demo
+  ) where
 
 import Lens.Micro
 import Lens.Micro.TH (makeLenses)
@@ -8,12 +24,13 @@ import Lens.Micro.TH (makeLenses)
 data Cell
   = Given Int
   | User Int
-  | Empty
   | Note [Int]
+  | Empty
+  deriving (Read, Show)
 
 type Region = [Cell]
 
-type Grid = [Region] -- rows
+type Grid = [Region]
 
 data Game = Game
   { _cursor :: (Int, Int)
@@ -28,6 +45,65 @@ data Direction
 
 makeLenses ''Game
 
+-- | Make a Game from a rows of Ints
+mkGame :: [[Int]] -> Game
+mkGame g = Game
+  { _cursor = (4, 4)
+  , _grid = map (map mkCell) g
+  } where mkCell 0 = Empty
+          mkCell x = Given x
+
+-- | Move cursor a distance in a direction (wrap when reaching edges)
+moveCursor :: Direction -> Int -> Game -> Game
+moveCursor direction distance game@Game {_cursor = (x, y)} =
+  (\c -> game & cursor .~ c) $ case direction of
+    North -> (x, wrap (y - distance))
+    South -> (x, wrap (y + distance))
+    East  -> (wrap (x + distance), y)
+    West  -> (wrap (x - distance), y)
+  where wrap n | n >= 9    = n - 9
+               | n < 0     = n + 9
+               | otherwise = n
+
+-- | Transform highlighted cell
+transformCell :: (Cell -> Cell) -> Game -> Game
+transformCell f game@Game {_cursor = (x, y)} =
+  game & grid . ix y . ix x %~ f
+
+answerCell :: Int -> Game -> Game
+answerCell number game = transformCell f game
+  where f (Given n) = Given n
+        f _         = User number
+
+toggleNoteCell :: Int -> Game -> Game
+toggleNoteCell number game = transformCell f game
+  where f (Given n) = Given n
+        f (Note ns)
+          | ns == [number] = Empty
+          | otherwise =
+            if number `elem` ns
+              then Note (filter (/= number) ns)
+              else Note (number : ns)
+        f _ = Note [number]
+
+clearCell :: Game -> Game
+clearCell game = transformCell f game
+  where f (Given n) = Given n
+        f _         = Empty
+
+-- | Group list elements into sub-lists of size n
+group :: Int -> [a] -> [[a]]
+group _ [] = []
+group n xs
+  | n > 0 = take n xs : group n (drop n xs)
+  | otherwise = error "Invalid group size"
+
+getRegion :: Int -> Grid -> [[Cell]]
+getRegion number grid' =
+  [[grid' !! row !! col | col <- [x..x+2]] | row <- [y..y+2]]
+  where x = (number `mod` 3) * 3
+        y = number - (number `mod` 3)
+
 demo :: [[Int]]
 demo = let z = 0 in
   [ [z, 6, z, z, z, z, z, 7, 3]
@@ -40,43 +116,3 @@ demo = let z = 0 in
   , [2, z, 7, 5, z, z, z, 1, z]
   , [5, 3, z, z, z, z, z, 9, z]
   ]
-
-mkGame :: [[Int]] -> Game
-mkGame g = Game
-  { _cursor = (0, 0)
-  , _grid = map (map mkCell) g
-  } where mkCell 0 = Empty
-          mkCell x = Given x
-
-move :: Direction -> Game -> Game
-move direction game@Game {_cursor = (x, y)} =
-  case direction of
-    North -> game & cursor .~ (x, wrap (y - 1))
-    South -> game & cursor .~ (x, wrap (y + 1))
-    East -> game & cursor .~ (wrap (x + 1), y)
-    West -> game & cursor .~ (wrap (x - 1), y)
-  where wrap val
-          | val > upper = lower
-          | val < lower = upper
-          | otherwise = val
-          where lower = 0
-                upper = 8
-
-answer :: Int -> Game -> Game
-answer number game@Game {_cursor = (x, y)} =
-  game & grid . ix y . ix x %~ modify number
-  where modify _ c@(Given _) = c
-        modify 0 _ = Empty
-        modify n _ = User n
-
-toggleNote :: Int -> Game -> Game
-toggleNote number game@Game {_cursor = (x, y)} =
-  game & grid . ix y . ix x %~ modify number
-  where modify _ g@(Given _) = g
-        modify n (Note ns) = if n `elem` ns
-          then Note (filter (== n) ns)
-          else Note (n : ns)
-        modify n _ = Note [n]
-
-generateGrid :: IO Grid
-generateGrid = undefined

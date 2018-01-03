@@ -3,12 +3,23 @@ module UI where
 import Sudoku
 
 import Brick
-import Brick.Widgets.Border (borderWithLabel, vBorder, hBorder)
-import Brick.Widgets.Border.Style (unicode)
-import Data.List (sort, intersperse)
+import Brick.Widgets.Border (borderWithLabel, vBorder, hBorderWithLabel)
+import Brick.Widgets.Border.Style (unicode, unicodeBold)
+import Brick.Widgets.Center (hCenter)
+import Data.List (intersperse)
+import Data.Maybe (fromMaybe)
 import Flow ((|>))
 import qualified Graphics.Vty as V
 import Lens.Micro
+
+(?) :: Bool -> (a, a) -> a
+condition ? (true, false) = if condition then true else false
+
+group :: Int -> [a] -> [[a]]
+group _ [] = []
+group n xs
+  | n > 0 = take n xs : group n (drop n xs)
+  | otherwise = error "Invalid group size"
 
 styleCursor, styleCellGiven, styleCellUser, styleCellNote :: AttrName
 styleCursor    = attrName "styleCursor"
@@ -19,20 +30,35 @@ styleCellNote  = attrName "styleCellNote"
 attributes :: AttrMap
 attributes = attrMap V.defAttr
   [ (styleCursor,    bg V.brightBlack)
-  , (styleCellGiven, fg V.brightWhite)
-  , (styleCellUser,  fg V.brightBlue)
+  , (styleCellGiven, V.defAttr)
+  , (styleCellUser,  fg V.blue)
   , (styleCellNote,  fg V.yellow)
   ]
 
 handleEvent :: Game -> BrickEvent () e -> EventM () (Next Game)
-handleEvent game (VtyEvent (V.EvKey (V.KChar 'c') [V.MCtrl])) = halt game
-handleEvent game (VtyEvent (V.EvKey key modifiers)) =
+handleEvent game (VtyEvent (V.EvKey key [V.MCtrl])) =
+  case key of
+    -- Quit
+    V.KChar 'c' -> halt game
+    -- Undo
+    V.KChar 'z' -> continue $ fromMaybe game (undo game)
+    -- Reset
+    V.KChar 'r' -> continue . snapshot . reset $ game
+    _           -> continue game
+handleEvent game (VtyEvent (V.EvKey key [V.MShift])) =
+  continue $ case key of
+    V.KUp    -> moveCursor North 3 game
+    V.KDown  -> moveCursor South 3 game
+    V.KLeft  -> moveCursor West 3 game
+    V.KRight -> moveCursor East 3 game
+    _        -> game
+handleEvent game (VtyEvent (V.EvKey key [])) =
   continue $ case key of
     -- Move by cell
-    V.KUp       -> moveCursor North distance game
-    V.KDown     -> moveCursor South distance game
-    V.KLeft     -> moveCursor West distance game
-    V.KRight    -> moveCursor East distance game
+    V.KUp       -> moveCursor North 1 game
+    V.KDown     -> moveCursor South 1 game
+    V.KLeft     -> moveCursor West 1 game
+    V.KRight    -> moveCursor East 1 game
     V.KChar 'k' -> moveCursor North 1 game
     V.KChar 'j' -> moveCursor South 1 game
     V.KChar 'h' -> moveCursor West 1 game
@@ -50,125 +76,134 @@ handleEvent game (VtyEvent (V.EvKey key modifiers)) =
     V.KChar 'S' -> moveCursor South 3 game
     V.KChar 'A' -> moveCursor West 3 game
     V.KChar 'D' -> moveCursor East 3 game
-    -- Clear cell
-    V.KBS       -> clearCell game
-    V.KChar '0' -> clearCell game
+    -- Erase cell
+    V.KBS       -> eraseCell . snapshot $ game
+    V.KChar '0' -> eraseCell . snapshot $ game
+    V.KChar 'x' -> eraseCell . snapshot $ game
     -- Enter number
-    V.KChar '1' -> answerCell 1 game
-    V.KChar '2' -> answerCell 2 game
-    V.KChar '3' -> answerCell 3 game
-    V.KChar '4' -> answerCell 4 game
-    V.KChar '5' -> answerCell 5 game
-    V.KChar '6' -> answerCell 6 game
-    V.KChar '7' -> answerCell 7 game
-    V.KChar '8' -> answerCell 8 game
-    V.KChar '9' -> answerCell 9 game
+    V.KChar '1' -> answerCell 1 . snapshot $ game
+    V.KChar '2' -> answerCell 2 . snapshot $ game
+    V.KChar '3' -> answerCell 3 . snapshot $ game
+    V.KChar '4' -> answerCell 4 . snapshot $ game
+    V.KChar '5' -> answerCell 5 . snapshot $ game
+    V.KChar '6' -> answerCell 6 . snapshot $ game
+    V.KChar '7' -> answerCell 7 . snapshot $ game
+    V.KChar '8' -> answerCell 8 . snapshot $ game
+    V.KChar '9' -> answerCell 9 . snapshot $ game
     -- Toggle note
-    V.KChar '!' -> toggleNoteCell 1 game
-    V.KChar '@' -> toggleNoteCell 2 game
-    V.KChar '#' -> toggleNoteCell 3 game
-    V.KChar '$' -> toggleNoteCell 4 game
-    V.KChar '%' -> toggleNoteCell 5 game
-    V.KChar '^' -> toggleNoteCell 6 game
-    V.KChar '&' -> toggleNoteCell 7 game
-    V.KChar '*' -> toggleNoteCell 8 game
-    V.KChar '(' -> toggleNoteCell 9 game
+    V.KChar '!' -> toggleNoteCell 1 . snapshot $ game
+    V.KChar '@' -> toggleNoteCell 2 . snapshot $ game
+    V.KChar '#' -> toggleNoteCell 3 . snapshot $ game
+    V.KChar '$' -> toggleNoteCell 4 . snapshot $ game
+    V.KChar '%' -> toggleNoteCell 5 . snapshot $ game
+    V.KChar '^' -> toggleNoteCell 6 . snapshot $ game
+    V.KChar '&' -> toggleNoteCell 7 . snapshot $ game
+    V.KChar '*' -> toggleNoteCell 8 . snapshot $ game
+    V.KChar '(' -> toggleNoteCell 9 . snapshot $ game
+    -- Undo
+    V.KChar 'u' -> fromMaybe game (undo game)
     -- Other
     _           -> game
-  where distance = if V.MShift `elem` modifiers then 3 else 1
 handleEvent game _ = continue game
 
--- TODO
 highlightCursor :: Game -> [[[[Widget ()]]]] -> [[[[Widget ()]]]]
-highlightCursor Game {_cursor = (x, y)} ws =
-  ws & ix bigRow . ix bigCol . ix smallRow . ix smallCol %~ withAttr styleCursor
-  where bigRow = y `div` 3
-        bigCol = x `div` 3
+highlightCursor Game {_cursor = (x, y)} widgets =
+  widgets & ix bigRow
+          . ix bigCol
+          . ix smallRow
+          . ix smallCol
+          %~ withAttr styleCursor
+  where bigRow   = y `div` 3
+        bigCol   = x `div` 3
         smallRow = y `mod` 3
         smallCol = x `mod` 3
 
-drawCell :: Cell -> Widget ()
-drawCell cell = padLeftRight 1 . padAll 1 $ case cell of
+drawGridCell :: Cell -> Widget ()
+drawGridCell cell = padLeftRight 1 . padAll 1 $ case cell of
   Given x -> withAttr styleCellGiven . str $ show x
   User x  -> withAttr styleCellUser . str $ show x
   Note _  -> withAttr styleCellNote . str $ "n"
   Empty   -> str " "
 
--- TODO
 drawGrid :: Game -> Widget ()
-drawGrid game = let g = game ^. grid in map (`getRegion` g) [0..8]
+drawGrid game =
+  map (`getRegion` game) [0..8]
   |> group 3
-  |> map (map (map (map drawCell)))
+  |> map (map (map (map drawGridCell)))
   |> highlightCursor game
+  |> map (map (map (intersperse (withBorderStyle unicode vBorder)))) -- TODO
   |> map (map (map hBox))
+  |> map (map (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼─────┼"))))) -- TODO
   |> map (map vBox)
-  |> map (intersperse vBorder)
+  |> map (intersperse (withBorderStyle unicodeBold vBorder))
   |> map hBox
-  |> intersperse hBorder
+  |> intersperse (withBorderStyle unicodeBold (hBorderWithLabel (str "╋━━━━━━━━━━━━━━━━━╋")))
   |> vBox
-  |> withBorderStyle unicode
   |> borderWithLabel (str " Sudoku ")
-  |> hLimit 49
-  |> vLimit 31
+  |> withBorderStyle unicodeBold
+  |> setAvailableSize (55, 37)
+  |> padRight (Pad 1)
 
--- TODO
-drawNotes :: Game -> Widget ()
-drawNotes Game {_cursor = (x, y), _grid = g} = getRegion r g
-  |> map (map convert)
-  |> map (intersperse vBorder)
+drawNotesCell :: Cell -> Widget ()
+drawNotesCell (Note xs) =
+  map str xs'
+  |> group 3
   |> map hBox
-  |> intersperse hBorder
   |> vBox
-  |> withBorderStyle unicode
+  |> withAttr styleCellNote
+  |> padTopBottom 1
+  |> hCenter
+  |> hLimit 9
+  where xs' = map f [1..9]
+        f x = (x `elem` xs) ? (show x, " ")
+drawNotesCell cell = padLeftRight 2 . padAll 2 $ case cell of
+  Given x -> withAttr styleCellGiven . str $ show x
+  User x  -> withAttr styleCellUser . str $ show x
+  -- Note xs -> withAttr styleCellNote . str $ "n" -- TODO
+  Empty   -> str " "
+
+drawNotes :: Game -> Widget ()
+drawNotes game =
+  getRegion (getCurrentRegion game) game
+  |> map (map drawNotesCell)
+  |> map (intersperse (withBorderStyle unicode vBorder))
+  |> map hBox
+  |> intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼─────────┼")))
+  |> vBox
   |> borderWithLabel (str " Notes ")
-  |> hLimit 31
-  |> vLimit 19
-  where r = ((y `div` 3) * 3) + (x `div` 3)
-        convert Empty = " "
-          |> str
-          |> padAll 2
-          |> padLeftRight 2
-        convert (Note ns) = ns
-          |> sort
-          |> show
-          |> strWrap
-          |> padAll 1
-          |> withAttr styleCellNote
-          |> hLimit 9
-        convert (Given n) = show n
-          |> str
-          |> padAll 2
-          |> padLeftRight 2
-          |> withAttr styleCellGiven
-        convert (User n) = show n
-          |> str
-          |> padAll 2
-          |> padLeftRight 2
-          |> withAttr styleCellUser
+  |> withBorderStyle unicodeBold
+  |> setAvailableSize (31, 19)
 
 drawHelp :: Widget ()
-drawHelp = unlines
-  [ "move:    arrows / wasd / hjkl"
+drawHelp =
+  [ "move:    ←↓↑→ / wasd / hjkl"
   , "answer:  1-9"
   , "note:    shift + 1-9"
-  , "erase:   0 / backspace"
+  , "erase:   backspace / 0 / x"
+  , "undo:    ctrl + z / u"
+  , "reset:   ctrl + r"
   , "quit:    ctrl + c"
   ]
+  |> unlines
   |> str
   |> padLeftRight 1
-  |> withBorderStyle unicode
   |> borderWithLabel (str " Help ")
+  |> withBorderStyle unicodeBold
+  |> setAvailableSize (31, 12)
 
 drawDebug :: Game -> Widget ()
-drawDebug Game {_cursor = (x, y)} = unlines
-  [ "cursor: (" ++ show x ++ ", " ++ show y ++ ")"
-  , "region: " ++ show region
+drawDebug game@Game {_cursor = (x, y)} =
+  [ "cursor:    (" ++ show x ++ ", " ++ show y ++ ")"
+  , "region:    " ++ show (getCurrentRegion game)
+  , "progress:  " ++ show (progress game)
   ]
+  |> unlines
   |> str
+  |> padRight Max
   |> padLeftRight 1
-  |> withBorderStyle unicode
   |> borderWithLabel (str " Debug ")
-  where region = ((y `div` 3) * 3) + (x `div` 3)
+  |> withBorderStyle unicodeBold
+  |> hLimit 31
 
 drawUI :: Game -> Widget ()
 drawUI game = drawGrid game <+> (drawNotes game <=> drawHelp <=> drawDebug game)
@@ -185,5 +220,18 @@ app = App
 main :: IO ()
 main = do
   finalGame <- defaultMain app (mkGame demo)
-  writeFile "save.sudoku" (show $ finalGame ^. grid)
+  -- writeFile "save.sudoku" (show $ finalGame ^. grid)
   return ()
+
+demo :: [[Int]]
+demo = let z = 0 in
+  [ [z, 6, z, z, z, z, z, 7, 3]
+  , [z, 7, z, z, z, 1, 5, z, 4]
+  , [z, z, z, z, 7, z, 1, z, z]
+  , [7, 5, z, 8, z, 6, 4, z, z]
+  , [3, z, 8, 9, 1, 5, 2, z, 7]
+  , [z, z, 2, 7, z, 4, z, 5, 9]
+  , [z, z, 6, z, 9, z, z, z, z]
+  , [2, z, 7, 5, z, z, z, 1, z]
+  , [5, 3, z, z, z, z, z, 9, z]
+  ]

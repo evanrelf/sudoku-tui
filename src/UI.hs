@@ -3,9 +3,9 @@ module UI where
 import Sudoku
 
 import Brick
-import Brick.Widgets.Border (borderWithLabel, vBorder, hBorderWithLabel)
+import Brick.Widgets.Border (border, borderWithLabel, vBorder, hBorderWithLabel)
 import Brick.Widgets.Border.Style (unicode, unicodeBold)
-import Brick.Widgets.Center (hCenter)
+import Brick.Widgets.Center (center, hCenter)
 import Data.List (intersperse)
 import Data.Maybe (fromMaybe)
 import Flow ((|>))
@@ -112,17 +112,23 @@ highlightCursor Game {_cursor = (x, y)} widgets =
           . ix bigCol
           . ix smallRow
           . ix smallCol
-          %~ withAttr styleCursor
+          %~ withDefAttr styleCursor
   where bigRow   = y `div` 3
         bigCol   = x `div` 3
         smallRow = y `mod` 3
         smallCol = x `mod` 3
 
 drawGridCell :: Cell -> Widget ()
-drawGridCell cell = padLeftRight 1 . padAll 1 $ case cell of
+drawGridCell cell = center $ case cell of
   Given x -> withAttr styleCellGiven . str $ show x
   User x  -> withAttr styleCellUser . str $ show x
-  Note _  -> withAttr styleCellNote . str $ "n"
+  Note xs -> map str xs'
+          |> group 3
+          |> map hBox
+          |> vBox
+          |> withAttr styleCellNote
+    where xs' = map f [1..9]
+          f x = (x `elem` xs) ? (show x, " ")
   Empty   -> str " "
 
 drawGrid :: Game -> Widget ()
@@ -133,46 +139,17 @@ drawGrid game =
   |> highlightCursor game
   |> map (map (map (intersperse (withBorderStyle unicode vBorder)))) -- TODO
   |> map (map (map hBox))
-  |> map (map (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼─────┼"))))) -- TODO
+  |> map (map (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼───────┼"))))) -- TODO
   |> map (map vBox)
   |> map (intersperse (withBorderStyle unicodeBold vBorder))
   |> map hBox
-  |> intersperse (withBorderStyle unicodeBold (hBorderWithLabel (str "╋━━━━━━━━━━━━━━━━━╋")))
+  |> intersperse (withBorderStyle unicodeBold (hBorderWithLabel (str "╋━━━━━━━━━━━━━━━━━━━━━━━╋")))
   |> vBox
-  |> borderWithLabel (str " Sudoku ")
+  |> border
   |> withBorderStyle unicodeBold
-  |> setAvailableSize (55, 37)
+  -- |> setAvailableSize (55, 37)
+  |> setAvailableSize (73, 37)
   |> padRight (Pad 1)
-
-drawNotesCell :: Cell -> Widget ()
-drawNotesCell (Note xs) =
-  map str xs'
-  |> group 3
-  |> map hBox
-  |> vBox
-  |> withAttr styleCellNote
-  |> padTopBottom 1
-  |> hCenter
-  |> hLimit 9
-  where xs' = map f [1..9]
-        f x = (x `elem` xs) ? (show x, " ")
-drawNotesCell cell = padLeftRight 2 . padAll 2 $ case cell of
-  Given x -> withAttr styleCellGiven . str $ show x
-  User x  -> withAttr styleCellUser . str $ show x
-  -- Note xs -> withAttr styleCellNote . str $ "n" -- TODO
-  Empty   -> str " "
-
-drawNotes :: Game -> Widget ()
-drawNotes game =
-  getRegion (getCurrentRegion game) game
-  |> map (map drawNotesCell)
-  |> map (intersperse (withBorderStyle unicode vBorder))
-  |> map hBox
-  |> intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼─────────┼")))
-  |> vBox
-  |> borderWithLabel (str " Notes ")
-  |> withBorderStyle unicodeBold
-  |> setAvailableSize (31, 19)
 
 drawHelp :: Widget ()
 drawHelp =
@@ -206,7 +183,7 @@ drawDebug game@Game {_cursor = (x, y)} =
   |> hLimit 31
 
 drawUI :: Game -> Widget ()
-drawUI game = drawGrid game <+> (drawNotes game <=> drawHelp <=> drawDebug game)
+drawUI game = drawGrid game <+> (drawHelp <=> drawDebug game)
 
 app :: App Game e ()
 app = App

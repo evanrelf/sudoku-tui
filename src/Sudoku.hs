@@ -104,12 +104,12 @@ reset game = game & grid %~ map (map f)
 
 progress :: Game -> Float
 progress game = completed / total
-  where cells      = concat $ game ^. grid
-        completed  = fromIntegral $ length $ filter f cells
-        total      = fromIntegral $ length cells
-        f (Given _)= True
-        f (User _) = True
-        f _        = False
+  where cells       = concat $ game ^. grid
+        completed   = fromIntegral $ length $ filter f cells
+        total       = fromIntegral $ length cells
+        f (Given _) = True
+        f (User _)  = True
+        f _         = False
 
 getCurrentRegion :: Game -> Int
 getCurrentRegion Game {_cursor = (x, y)} = ((y `div` 3) * 3) + (x `div` 3)

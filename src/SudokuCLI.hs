@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Sudoku
+module SudokuCLI
   ( Cell(..)
   , Grid
   , Game(..)

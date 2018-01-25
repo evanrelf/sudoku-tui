@@ -5,7 +5,7 @@ module FileIO
   , promptSave
   ) where
 
-import Sudoku
+import SudokuCLI
 
 import System.IO (hFlush, stdout)
 

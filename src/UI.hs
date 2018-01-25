@@ -1,6 +1,6 @@
 module UI where
 
-import Sudoku
+import SudokuCLI
 import FileIO
 
 import Brick

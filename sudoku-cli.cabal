@@ -1,7 +1,7 @@
-name:                sudoku
+name:                sudoku-cli
 version:             0.1.0.0
 synopsis:            Command-line sudoku game
-homepage:            https://github.com/evanrelf/sudoku
+homepage:            https://github.com/evanrelf/sudoku-cli
 license:             MIT
 license-file:        LICENSE
 author:              Evan Relf <evan@evanrelf.com>
@@ -12,9 +12,9 @@ build-type:          Simple
 cabal-version:       >=1.10
 extra-source-files:  README.md
 
-executable sudoku
+executable sudoku-cli
   hs-source-dirs:      src
-  other-modules:       Sudoku
+  other-modules:       SudokuCLI
                      , UI
                      , FileIO
   main-is:             Main.hs

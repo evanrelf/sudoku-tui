@@ -13,10 +13,10 @@ module Sudoku
   , answerCell
   , toggleNoteCell
   , eraseCell
-  , snapshot
-  , undo
-  , reset
-  , progress
+  , snapshotGame
+  , undoGame
+  , resetGame
+  , gameProgress
   , getCurrentRegion
   , getRegion
   ) where
@@ -37,7 +37,7 @@ data Game = Game
   { _cursor :: (Int, Int)
   , _grid :: Grid
   , _previous :: Maybe Game
-  }
+  } deriving (Read, Show)
 
 data Direction
   = North
@@ -91,19 +91,19 @@ eraseCell = transformCell f
   where f (Given x) = Given x
         f _         = Empty
 
-snapshot :: Game -> Game
-snapshot game = game & previous .~ Just game
+snapshotGame :: Game -> Game
+snapshotGame game = game & previous .~ Just game
 
-undo :: Game -> Maybe Game
-undo game = game ^. previous
+undoGame :: Game -> Maybe Game
+undoGame game = game ^. previous
 
-reset :: Game -> Game
-reset game = game & grid %~ map (map f)
+resetGame :: Game -> Game
+resetGame game = game & grid %~ map (map f)
   where f (Given x) = Given x
         f _         = Empty
 
-progress :: Game -> Float
-progress game = completed / total
+gameProgress :: Game -> Float
+gameProgress game = completed / total
   where cells       = concat $ game ^. grid
         completed   = fromIntegral $ length $ filter f cells
         total       = fromIntegral $ length cells

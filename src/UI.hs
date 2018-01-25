@@ -1,16 +1,18 @@
 module UI where
 
 import Sudoku
+import FileIO
 
 import Brick
 import Brick.Widgets.Border (border, borderWithLabel, vBorder, hBorderWithLabel)
 import Brick.Widgets.Border.Style (unicode, unicodeBold)
-import Brick.Widgets.Center (center, hCenter)
+import Brick.Widgets.Center (center)
 import Data.List (intersperse)
 import Data.Maybe (fromMaybe)
 import Flow ((|>))
 import qualified Graphics.Vty as V
 import Lens.Micro
+import Data.Char (digitToInt)
 
 (?) :: Bool -> (a, a) -> a
 condition ? (true, false) = if condition then true else false
@@ -41,9 +43,10 @@ handleEvent game (VtyEvent (V.EvKey key [V.MCtrl])) =
     -- Quit
     V.KChar 'c' -> halt game
     -- Undo
-    V.KChar 'z' -> continue $ fromMaybe game (undo game)
+    V.KChar 'z' -> continue $ fromMaybe game (undoGame game)
     -- Reset
-    V.KChar 'r' -> continue . snapshot . reset $ game
+    V.KChar 'r' -> continue . snapshotGame . resetGame $ game
+    -- Other
     _           -> continue game
 handleEvent game (VtyEvent (V.EvKey key [V.MShift])) =
   continue $ case key of
@@ -77,31 +80,31 @@ handleEvent game (VtyEvent (V.EvKey key [])) =
     V.KChar 'A' -> moveCursor West 3 game
     V.KChar 'D' -> moveCursor East 3 game
     -- Erase cell
-    V.KBS       -> eraseCell . snapshot $ game
-    V.KChar '0' -> eraseCell . snapshot $ game
-    V.KChar 'x' -> eraseCell . snapshot $ game
+    V.KBS       -> eraseCell . snapshotGame $ game
+    V.KChar '0' -> eraseCell . snapshotGame $ game
+    V.KChar 'x' -> eraseCell . snapshotGame $ game
     -- Enter number
-    V.KChar '1' -> answerCell 1 . snapshot $ game
-    V.KChar '2' -> answerCell 2 . snapshot $ game
-    V.KChar '3' -> answerCell 3 . snapshot $ game
-    V.KChar '4' -> answerCell 4 . snapshot $ game
-    V.KChar '5' -> answerCell 5 . snapshot $ game
-    V.KChar '6' -> answerCell 6 . snapshot $ game
-    V.KChar '7' -> answerCell 7 . snapshot $ game
-    V.KChar '8' -> answerCell 8 . snapshot $ game
-    V.KChar '9' -> answerCell 9 . snapshot $ game
+    V.KChar '1' -> answerCell 1 . snapshotGame $ game
+    V.KChar '2' -> answerCell 2 . snapshotGame $ game
+    V.KChar '3' -> answerCell 3 . snapshotGame $ game
+    V.KChar '4' -> answerCell 4 . snapshotGame $ game
+    V.KChar '5' -> answerCell 5 . snapshotGame $ game
+    V.KChar '6' -> answerCell 6 . snapshotGame $ game
+    V.KChar '7' -> answerCell 7 . snapshotGame $ game
+    V.KChar '8' -> answerCell 8 . snapshotGame $ game
+    V.KChar '9' -> answerCell 9 . snapshotGame $ game
     -- Toggle note
-    V.KChar '!' -> toggleNoteCell 1 . snapshot $ game
-    V.KChar '@' -> toggleNoteCell 2 . snapshot $ game
-    V.KChar '#' -> toggleNoteCell 3 . snapshot $ game
-    V.KChar '$' -> toggleNoteCell 4 . snapshot $ game
-    V.KChar '%' -> toggleNoteCell 5 . snapshot $ game
-    V.KChar '^' -> toggleNoteCell 6 . snapshot $ game
-    V.KChar '&' -> toggleNoteCell 7 . snapshot $ game
-    V.KChar '*' -> toggleNoteCell 8 . snapshot $ game
-    V.KChar '(' -> toggleNoteCell 9 . snapshot $ game
+    V.KChar '!' -> toggleNoteCell 1 . snapshotGame $ game
+    V.KChar '@' -> toggleNoteCell 2 . snapshotGame $ game
+    V.KChar '#' -> toggleNoteCell 3 . snapshotGame $ game
+    V.KChar '$' -> toggleNoteCell 4 . snapshotGame $ game
+    V.KChar '%' -> toggleNoteCell 5 . snapshotGame $ game
+    V.KChar '^' -> toggleNoteCell 6 . snapshotGame $ game
+    V.KChar '&' -> toggleNoteCell 7 . snapshotGame $ game
+    V.KChar '*' -> toggleNoteCell 8 . snapshotGame $ game
+    V.KChar '(' -> toggleNoteCell 9 . snapshotGame $ game
     -- Undo
-    V.KChar 'u' -> fromMaybe game (undo game)
+    V.KChar 'u' -> fromMaybe game (undoGame game)
     -- Other
     _           -> game
 handleEvent game _ = continue game
@@ -137,9 +140,9 @@ drawGrid game =
   |> group 3
   |> map (map (map (map drawGridCell)))
   |> highlightCursor game
-  |> map (map (map (intersperse (withBorderStyle unicode vBorder)))) -- TODO
+  |> map (map (map (intersperse (withBorderStyle unicode vBorder))))
   |> map (map (map hBox))
-  |> map (map (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼───────┼"))))) -- TODO
+  |> map (map (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼───────┼")))))
   |> map (map vBox)
   |> map (intersperse (withBorderStyle unicodeBold vBorder))
   |> map hBox
@@ -147,7 +150,6 @@ drawGrid game =
   |> vBox
   |> border
   |> withBorderStyle unicodeBold
-  -- |> setAvailableSize (55, 37)
   |> setAvailableSize (73, 37)
   |> padRight (Pad 1)
 
@@ -172,7 +174,7 @@ drawDebug :: Game -> Widget ()
 drawDebug game@Game {_cursor = (x, y)} =
   [ "cursor:    (" ++ show x ++ ", " ++ show y ++ ")"
   , "region:    " ++ show (getCurrentRegion game)
-  , "progress:  " ++ show (progress game)
+  , "progress:  " ++ show (gameProgress game)
   ]
   |> unlines
   |> str
@@ -187,7 +189,7 @@ drawUI game = drawGrid game <+> (drawHelp <=> drawDebug game)
 
 app :: App Game e ()
 app = App
-  { appDraw = \x -> [drawUI x]
+  { appDraw         = \x -> [drawUI x]
   , appChooseCursor = neverShowCursor
   , appHandleEvent  = handleEvent
   , appStartEvent   = return
@@ -196,9 +198,40 @@ app = App
 
 main :: IO ()
 main = do
-  finalGame <- defaultMain app (mkGame demo)
-  -- writeFile "save.sudoku" (show $ finalGame ^. grid)
-  return ()
+  putStr $ unlines
+    [ "SUDOKU"
+    , "  1) Load demo game"
+    , "  2) Load file"
+    , "  3) Load autosave"
+    , "  4) Load game string"
+    , "  *) Quit"
+    ]
+  response <- prompt "> "
+  case head' response of
+    '1' -> do
+      endGame <- defaultMain app (mkGame demo)
+      promptSave endGame
+      saveGame "autosave.sudoku" endGame
+    '2' -> do
+      filename <- prompt "Filename: "
+      game <- loadGame filename
+      endGame <- defaultMain app game
+      promptSave endGame
+      saveGame "autosave.sudoku" endGame
+    '3' -> do
+      game <- loadGame "autosave.sudoku"
+      endGame <- defaultMain app game
+      promptSave endGame
+      saveGame "autosave.sudoku" endGame
+    '4' -> do
+      gameString <- prompt "Game string: "
+      let game = (mkGame . group 9 . map digitToInt) $ gameString
+      endGame <- defaultMain app game
+      promptSave endGame
+      saveGame "autosave.sudoku" endGame
+    _   -> putStrLn "Quitting..."
+  where head' [] = ' '
+        head' x  = head x
 
 demo :: [[Int]]
 demo = let z = 0 in

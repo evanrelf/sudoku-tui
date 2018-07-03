@@ -9,13 +9,9 @@ import Brick.Widgets.Border.Style (unicode, unicodeBold)
 import Brick.Widgets.Center (center)
 import Data.List (intersperse)
 import Data.Maybe (fromMaybe)
-import Flow ((|>))
 import qualified Graphics.Vty as V
 import Lens.Micro
 import Data.Char (digitToInt)
-
-(?) :: Bool -> (a, a) -> a
-condition ? (true, false) = if condition then true else false
 
 group :: Int -> [a] -> [[a]]
 group _ [] = []
@@ -81,6 +77,7 @@ handleEvent game (VtyEvent (V.EvKey key [])) =
     V.KChar 'D' -> moveCursor East 3 game
     -- Erase cell
     V.KBS       -> eraseCell . snapshotGame $ game
+    V.KDel      -> eraseCell . snapshotGame $ game
     V.KChar '0' -> eraseCell . snapshotGame $ game
     V.KChar 'x' -> eraseCell . snapshotGame $ game
     -- Enter number
@@ -121,37 +118,37 @@ highlightCursor Game {_cursor = (x, y)} widgets =
         smallRow = y `mod` 3
         smallCol = x `mod` 3
 
-drawGridCell :: Cell -> Widget ()
-drawGridCell cell = center $ case cell of
+drawCell :: Cell -> Widget ()
+drawCell cell = center $ case cell of
   Given x -> withAttr styleCellGiven . str $ show x
   User x  -> withAttr styleCellUser . str $ show x
   Note xs -> map str xs'
-          |> group 3
-          |> map hBox
-          |> vBox
-          |> withAttr styleCellNote
+          & group 3
+          & map hBox
+          & vBox
+          & withAttr styleCellNote
     where xs' = map f [1..9]
-          f x = (x `elem` xs) ? (show x, " ")
+          f x = if x `elem` xs then show x else " "
   Empty   -> str " "
 
 drawGrid :: Game -> Widget ()
 drawGrid game =
   map (`getRegion` game) [0..8]
-  |> group 3
-  |> map (map (map (map drawGridCell)))
-  |> highlightCursor game
-  |> map (map (map (intersperse (withBorderStyle unicode vBorder))))
-  |> map (map (map hBox))
-  |> map (map (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼───────┼")))))
-  |> map (map vBox)
-  |> map (intersperse (withBorderStyle unicodeBold vBorder))
-  |> map hBox
-  |> intersperse (withBorderStyle unicodeBold (hBorderWithLabel (str "╋━━━━━━━━━━━━━━━━━━━━━━━╋")))
-  |> vBox
-  |> border
-  |> withBorderStyle unicodeBold
-  |> setAvailableSize (73, 37)
-  |> padRight (Pad 1)
+  & group 3
+  & map (map (map (map drawCell)))
+  & highlightCursor game
+  & map (map (map (intersperse (withBorderStyle unicode vBorder))))
+  & map (map (map hBox))
+  & map (map (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼───────┼")))))
+  & map (map vBox)
+  & map (intersperse (withBorderStyle unicodeBold vBorder))
+  & map hBox
+  & intersperse (withBorderStyle unicodeBold (hBorderWithLabel (str "╋━━━━━━━━━━━━━━━━━━━━━━━╋")))
+  & vBox
+  & border
+  & withBorderStyle unicodeBold
+  & setAvailableSize (73, 37)
+  & padRight (Pad 1)
 
 drawHelp :: Widget ()
 drawHelp =
@@ -163,26 +160,26 @@ drawHelp =
   , "reset:   ctrl + r"
   , "quit:    ctrl + c"
   ]
-  |> unlines
-  |> str
-  |> padLeftRight 1
-  |> borderWithLabel (str " Help ")
-  |> withBorderStyle unicodeBold
-  |> setAvailableSize (31, 12)
+  & unlines
+  & str
+  & padLeftRight 1
+  & borderWithLabel (str " Help ")
+  & withBorderStyle unicodeBold
+  & setAvailableSize (31, 12)
 
 drawDebug :: Game -> Widget ()
 drawDebug game@Game {_cursor = (x, y)} =
   [ "cursor:    (" ++ show x ++ ", " ++ show y ++ ")"
   , "region:    " ++ show (getCurrentRegion game)
-  , "progress:  " ++ show (gameProgress game)
+  , "progress:  " ++ show (round $ gameProgress game * 100) ++ "%"
   ]
-  |> unlines
-  |> str
-  |> padRight Max
-  |> padLeftRight 1
-  |> borderWithLabel (str " Debug ")
-  |> withBorderStyle unicodeBold
-  |> hLimit 31
+  & unlines
+  & str
+  & padRight Max
+  & padLeftRight 1
+  & borderWithLabel (str " Debug ")
+  & withBorderStyle unicodeBold
+  & hLimit 31
 
 drawUI :: Game -> Widget ()
 drawUI game = drawGrid game <+> (drawHelp <=> drawDebug game)
@@ -225,7 +222,7 @@ main = do
       saveGame "autosave.sudoku" endGame
     '4' -> do
       gameString <- prompt "Game string: "
-      let game = (mkGame . group 9 . map digitToInt) $ gameString
+      let game = (mkGame . group 9 . map digitToInt) gameString
       endGame <- defaultMain app game
       promptSave endGame
       saveGame "autosave.sudoku" endGame

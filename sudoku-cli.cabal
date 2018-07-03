@@ -22,7 +22,6 @@ executable sudoku-cli
   default-language:    Haskell2010
   build-depends:       base >= 4.7 && < 5
                      , brick
-                     , flow
                      , microlens
                      , microlens-th
                      , vty

@@ -1,36 +1,31 @@
 module UI where
 
-import SudokuCLI
 import FileIO
+import Game
 
 import Brick
 import Brick.Widgets.Border (border, borderWithLabel, vBorder, hBorderWithLabel)
 import Brick.Widgets.Border.Style (unicode, unicodeBold)
 import Brick.Widgets.Center (center)
-import Data.List (intersperse)
-import Data.Maybe (fromMaybe)
-import qualified Graphics.Vty as V
-import Lens.Micro
 import Data.Char (digitToInt)
+import Data.List (intersperse)
+import Data.List.Split(chunksOf)
+import Data.Maybe (fromMaybe)
+import Lens.Micro
+import qualified Graphics.Vty as V
 
-group :: Int -> [a] -> [[a]]
-group _ [] = []
-group n xs
-  | n > 0 = take n xs : group n (drop n xs)
-  | otherwise = error "Invalid group size"
-
-styleCursor, styleCellGiven, styleCellUser, styleCellNote :: AttrName
+styleCursor, styleCellGiven, styleCellInput, styleCellNote :: AttrName
 styleCursor    = attrName "styleCursor"
 styleCellGiven = attrName "styleCellGiven"
-styleCellUser  = attrName "styleCellUser"
+styleCellInput = attrName "styleCellInput"
 styleCellNote  = attrName "styleCellNote"
 
 attributes :: AttrMap
 attributes = attrMap V.defAttr
-  [ (styleCursor,    bg V.brightBlack)
+  [ (styleCursor, bg V.brightBlack)
   , (styleCellGiven, V.defAttr)
-  , (styleCellUser,  fg V.blue)
-  , (styleCellNote,  fg V.yellow)
+  , (styleCellInput, fg V.blue)
+  , (styleCellNote, fg V.yellow)
   ]
 
 handleEvent :: Game -> BrickEvent () e -> EventM () (Next Game)
@@ -107,7 +102,7 @@ handleEvent game (VtyEvent (V.EvKey key [])) =
 handleEvent game _ = continue game
 
 highlightCursor :: Game -> [[[[Widget ()]]]] -> [[[[Widget ()]]]]
-highlightCursor Game {_cursor = (x, y)} widgets =
+highlightCursor Game {cursor = (x, y)} widgets =
   widgets & ix bigRow
           . ix bigCol
           . ix smallRow
@@ -121,9 +116,9 @@ highlightCursor Game {_cursor = (x, y)} widgets =
 drawCell :: Cell -> Widget ()
 drawCell cell = center $ case cell of
   Given x -> withAttr styleCellGiven . str $ show x
-  User x  -> withAttr styleCellUser . str $ show x
+  Input x  -> withAttr styleCellInput . str $ show x
   Note xs -> map str xs'
-          & group 3
+          & chunksOf 3
           & map hBox
           & vBox
           & withAttr styleCellNote
@@ -134,7 +129,7 @@ drawCell cell = center $ case cell of
 drawGrid :: Game -> Widget ()
 drawGrid game =
   map (`getRegion` game) [0..8]
-  & group 3
+  & chunksOf 3
   & map (map (map (map drawCell)))
   & highlightCursor game
   & map (map (map (intersperse (withBorderStyle unicode vBorder))))
@@ -168,10 +163,9 @@ drawHelp =
   & setAvailableSize (31, 12)
 
 drawDebug :: Game -> Widget ()
-drawDebug game@Game {_cursor = (x, y)} =
+drawDebug game@Game {cursor = (x, y)} =
   [ "cursor:    (" ++ show x ++ ", " ++ show y ++ ")"
-  , "region:    " ++ show (getCurrentRegion game)
-  , "progress:  " ++ show (round $ gameProgress game * 100) ++ "%"
+  , "progress:  " ++ show ((round $ gameProgress game * 100) :: Int) ++ "%"
   ]
   & unlines
   & str
@@ -222,7 +216,7 @@ main = do
       saveGame "autosave.sudoku" endGame
     '4' -> do
       gameString <- prompt "Game string: "
-      let game = (mkGame . group 9 . map digitToInt) gameString
+      let game = (mkGame . map digitToInt) gameString
       endGame <- defaultMain app game
       promptSave endGame
       saveGame "autosave.sudoku" endGame
@@ -230,15 +224,15 @@ main = do
   where head' [] = ' '
         head' x  = head x
 
-demo :: [[Int]]
+demo :: [Int]
 demo = let z = 0 in
-  [ [z, 6, z, z, z, z, z, 7, 3]
-  , [z, 7, z, z, z, 1, 5, z, 4]
-  , [z, z, z, z, 7, z, 1, z, z]
-  , [7, 5, z, 8, z, 6, 4, z, z]
-  , [3, z, 8, 9, 1, 5, 2, z, 7]
-  , [z, z, 2, 7, z, 4, z, 5, 9]
-  , [z, z, 6, z, 9, z, z, z, z]
-  , [2, z, 7, 5, z, z, z, 1, z]
-  , [5, 3, z, z, z, z, z, 9, z]
+  [ z, 6, z, z, z, z, z, 7, 3
+  , z, 7, z, z, z, 1, 5, z, 4
+  , z, z, z, z, 7, z, 1, z, z
+  , 7, 5, z, 8, z, 6, 4, z, z
+  , 3, z, 8, 9, 1, 5, 2, z, 7
+  , z, z, 2, 7, z, 4, z, 5, 9
+  , z, z, 6, z, 9, z, z, z, z
+  , 2, z, 7, 5, z, z, z, 1, z
+  , 5, 3, z, z, z, z, z, 9, z
   ]

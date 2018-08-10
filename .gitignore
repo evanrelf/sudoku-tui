@@ -23,7 +23,6 @@ cabal.project.local
 
 # macOS
 .DS_Store
-.DS_Store
 .AppleDouble
 .LSOverride
 Icon

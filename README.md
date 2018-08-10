@@ -1,4 +1,4 @@
-sudoku-cli
+sudoku-tui
 ======
 Command-line sudoku game
 

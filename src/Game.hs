@@ -1,13 +1,9 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TemplateHaskell #-}
-
-module SudokuCLI
+module Game
   ( Cell(..)
+  , Row
   , Grid
   , Game(..)
   , Direction(..)
-  , cursor
-  , grid
   , mkGame
   , moveCursor
   , answerCell
@@ -17,26 +13,28 @@ module SudokuCLI
   , undoGame
   , resetGame
   , gameProgress
-  , getCurrentRegion
   , getRegion
   ) where
 
-import Lens.Micro
-import Lens.Micro.TH (makeLenses)
+import Data.Function ((&))
+import Data.List.Split (chunksOf)
+import Lens.Micro (ix, (%~))
 
 data Cell
   = Given Int
-  | User Int
+  | Input Int
   | Note [Int]
   | Empty
   deriving (Read, Show)
 
-type Grid = [[Cell]]
+type Row = [Cell]
+
+type Grid = [Row]
 
 data Game = Game
-  { _cursor :: (Int, Int)
-  , _grid :: Grid
-  , _previous :: Maybe Game
+  { cursor :: (Int, Int)
+  , grid :: Grid
+  , previous :: Maybe Game
   } deriving (Read, Show)
 
 data Direction
@@ -44,20 +42,19 @@ data Direction
   | South
   | East
   | West
+  deriving (Read, Show)
 
-makeLenses ''Game
-
-mkGame :: [[Int]] -> Game
-mkGame g = Game
-  { _cursor = (4, 4)
-  , _grid = map (map mkCell) g
-  , _previous = Nothing
+mkGame :: [Int] -> Game
+mkGame ns = Game
+  { cursor = (4, 4)
+  , grid = ns & map mkCell & chunksOf 9
+  , previous = Nothing
   } where mkCell 0 = Empty
-          mkCell x = Given x
+          mkCell n = Given n
 
 moveCursor :: Direction -> Int -> Game -> Game
-moveCursor direction distance game@Game {_cursor = (x, y)} =
-  (\c -> game & cursor .~ c) $ case direction of
+moveCursor direction distance game@Game { cursor = (x, y) } =
+  (\c -> game { cursor = c }) $ case direction of
     North -> (x, wrap (y - distance))
     South -> (x, wrap (y + distance))
     East  -> (wrap (x + distance), y)
@@ -66,14 +63,15 @@ moveCursor direction distance game@Game {_cursor = (x, y)} =
                | n < 0     = n + 9
                | otherwise = n
 
+-- TODO: Remove need for lenses
 transformCell :: (Cell -> Cell) -> Game -> Game
-transformCell f game@Game {_cursor = (x, y)} =
-  game & grid . ix y . ix x %~ f
+transformCell f game@Game { cursor = (x, y) } =
+  game { grid = grid game & ix y . ix x %~ f }
 
 answerCell :: Int -> Game -> Game
 answerCell number = transformCell f
   where f (Given n) = Given n
-        f _         = User number
+        f _         = Input number
 
 toggleNoteCell :: Int -> Game -> Game
 toggleNoteCell number = transformCell f
@@ -92,30 +90,27 @@ eraseCell = transformCell f
         f _         = Empty
 
 snapshotGame :: Game -> Game
-snapshotGame game = game & previous .~ Just game
+snapshotGame game = game { previous = Just game }
 
 undoGame :: Game -> Maybe Game
-undoGame game = game ^. previous
+undoGame = previous
 
 resetGame :: Game -> Game
-resetGame game = game & grid %~ map (map f)
+resetGame game@Game { grid = g } = game { grid = map (map f) g }
   where f (Given x) = Given x
         f _         = Empty
 
 gameProgress :: Game -> Float
 gameProgress game = completed / total
-  where cells       = concat $ game ^. grid
+  where cells       = concat $ grid game
         completed   = fromIntegral $ length $ filter f cells
         total       = fromIntegral $ length cells
         f (Given _) = True
-        f (User _)  = True
+        f (Input _) = True
         f _         = False
-
-getCurrentRegion :: Game -> Int
-getCurrentRegion Game {_cursor = (x, y)} = ((y `div` 3) * 3) + (x `div` 3)
 
 getRegion :: Int -> Game -> [[Cell]]
 getRegion number game =
-  [[(game ^. grid) !! row !! col | col <- [x..x+2]] | row <- [y..y+2]]
+  [[grid game !! row !! col | col <- [x..x+2]] | row <- [y..y+2]]
   where x = (number `mod` 3) * 3
         y = number - (number `mod` 3)

@@ -17,6 +17,7 @@ module Game
   ) where
 
 import Data.Function ((&))
+import Data.List (nub)
 import Data.List.Split (chunksOf)
 import Lens.Micro (ix, (%~))
 
@@ -34,6 +35,8 @@ type Grid = [Row]
 data Game = Game
   { cursor :: (Int, Int)
   , grid :: Grid
+  , progress :: Int
+  , solved :: Bool
   , previous :: Maybe Game
   } deriving (Read, Show)
 
@@ -46,11 +49,15 @@ data Direction
 
 mkGame :: [Int] -> Game
 mkGame ns = Game
-  { cursor = (4, 4)
-  , grid = ns & map mkCell & chunksOf 9
-  , previous = Nothing
-  } where mkCell 0 = Empty
-          mkCell n = Given n
+            { cursor = (4, 4)
+            , grid = ns & map mkCell & chunksOf 9
+            , previous = Nothing
+            , progress = 0
+            , solved = False
+            }
+            & updateAll
+  where mkCell 0 = Empty
+        mkCell n = Given n
 
 moveCursor :: Direction -> Int -> Game -> Game
 moveCursor direction distance game@Game { cursor = (x, y) } =
@@ -69,7 +76,7 @@ transformCell f game@Game { cursor = (x, y) } =
   game { grid = grid game & ix y . ix x %~ f }
 
 answerCell :: Int -> Game -> Game
-answerCell number = transformCell f
+answerCell number game = transformCell f game & updateAll
   where f (Given n) = Given n
         f _         = Input number
 
@@ -85,7 +92,7 @@ toggleNoteCell number = transformCell f
         f _ = Note [number]
 
 eraseCell :: Game -> Game
-eraseCell = transformCell f
+eraseCell game = transformCell f game & updateAll
   where f (Given x) = Given x
         f _         = Empty
 
@@ -97,20 +104,62 @@ undoGame = previous
 
 resetGame :: Game -> Game
 resetGame game@Game { grid = g } = game { grid = map (map f) g }
+                                 & updateAll
   where f (Given x) = Given x
         f _         = Empty
 
-gameProgress :: Game -> Float
-gameProgress game = completed / total
+gameProgress :: Game -> Int
+gameProgress game = round (fraction * 100)
   where cells       = concat $ grid game
-        completed   = fromIntegral $ length $ filter f cells
+        completed   = fromIntegral $ length $ filter hasValue cells
         total       = fromIntegral $ length cells
-        f (Given _) = True
-        f (Input _) = True
-        f _         = False
+        fraction    = completed / total :: Float
+        hasValue (Given _) = True
+        hasValue (Input _) = True
+        hasValue _         = False
+
+updateProgress :: Game -> Game
+updateProgress game = game { progress = gameProgress game }
+
+updateSolved :: Game -> Game
+updateSolved game =
+  if progress game < 100
+  then game { solved = False }
+  else game { solved = gameSolved game }
+
+updateAll :: Game -> Game
+updateAll game = game & updateProgress & updateSolved
+
+gameSolved :: Game -> Bool
+gameSolved game = rowsSolved && columnsSolved && regionsSolved
+  where rowsSolved = isSolved $ getRows game
+        columnsSolved = isSolved $ getColumns game
+        regionsSolved = isSolved $ getRegionsFlat game
+        noDuplicates l = nub l == l 
+        isSolved = all noDuplicates . map (map getNum)
+        getNum :: Cell -> Int
+        getNum (Given i) = i
+        getNum (Input i) = i
+        getNum _ = error "Extracting number from cell"
+
+getRows :: Game -> [[Cell]]
+getRows = grid
+
+getColumn :: Int -> Game -> [Cell]
+getColumn column game =
+  [grid game !! row !! column | row <- [0..8]]
+
+getColumns :: Game -> [[Cell]]
+getColumns game = [getColumn n game | n <- [0..8]]
 
 getRegion :: Int -> Game -> [[Cell]]
 getRegion number game =
   [[grid game !! row !! col | col <- [x..x+2]] | row <- [y..y+2]]
   where x = (number `mod` 3) * 3
         y = number - (number `mod` 3)
+
+getRegionFlat :: Int -> Game -> [Cell]
+getRegionFlat number game = concat $ getRegion number game
+
+getRegionsFlat :: Game -> [[Cell]]
+getRegionsFlat game = [getRegionFlat n game | n <- [0..8]]

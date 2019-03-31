@@ -15,10 +15,13 @@ import Lens.Micro
 import qualified Graphics.Vty as V
 
 styleCursor, styleCellGiven, styleCellInput, styleCellNote :: AttrName
+styleSolvedOk, styleSolvedNok :: AttrName
 styleCursor    = attrName "styleCursor"
 styleCellGiven = attrName "styleCellGiven"
 styleCellInput = attrName "styleCellInput"
 styleCellNote  = attrName "styleCellNote"
+styleSolvedOk  = attrName "styleSolvedOk"
+styleSolvedNok  = attrName "styleSolvedNok"
 
 attributes :: AttrMap
 attributes = attrMap V.defAttr
@@ -26,6 +29,8 @@ attributes = attrMap V.defAttr
   , (styleCellGiven, V.defAttr)
   , (styleCellInput, fg V.blue)
   , (styleCellNote, fg V.yellow)
+  , (styleSolvedOk, fg V.green)
+  , (styleSolvedNok, fg V.red)
   ]
 
 handleEvent :: Game -> BrickEvent () e -> EventM () (Next Game)
@@ -165,7 +170,7 @@ drawHelp =
 drawDebug :: Game -> Widget ()
 drawDebug game@Game {cursor = (x, y)} =
   [ "cursor:    (" ++ show x ++ ", " ++ show y ++ ")"
-  , "progress:  " ++ show ((round $ gameProgress game * 100) :: Int) ++ "%"
+  , "progress:  " ++ show (progress game) ++ "%"
   ]
   & unlines
   & str
@@ -175,8 +180,29 @@ drawDebug game@Game {cursor = (x, y)} =
   & withBorderStyle unicodeBold
   & hLimit 31
 
+drawSolved :: Game -> Widget ()
+drawSolved game = mkWidget
+  where
+    commonModifier = setAvailableSize (31, 3)
+                   . withBorderStyle unicodeBold
+                   . border
+                   . center
+    isCompleted = progress game == 100
+    isSolved = solved game
+    mkWidget
+      | isCompleted && isSolved =
+          str "SOLVED" & withAttr styleSolvedOk & commonModifier
+      | isCompleted && not isSolved =
+          str "ERROR" & withAttr styleSolvedNok & commonModifier
+      | otherwise = emptyWidget
+
 drawUI :: Game -> Widget ()
-drawUI game = drawGrid game <+> (drawHelp <=> drawDebug game)
+drawUI game = drawGrid game <+> (drawHelp
+                                   <=>
+                                 drawDebug game
+                                   <=>
+                                 drawSolved game
+                                 )
 
 app :: App Game e ()
 app = App

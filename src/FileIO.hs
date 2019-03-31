@@ -10,10 +10,10 @@ import Game
 import System.IO (hFlush, stdout)
 
 exportGame :: Game -> String
-exportGame = show
+exportGame = show . grid
 
 importGame :: String -> Game
-importGame = read
+importGame = (\g -> Game (4, 4) g Nothing) . read
 
 loadGame :: FilePath -> IO Game
 loadGame filename = importGame <$> readFile filename
@@ -29,10 +29,10 @@ prompt text = do
 
 promptSave :: Game -> IO ()
 promptSave game = do
-  putStrLn "Enter filename to save game (press enter to skip)"
+  putStrLn "Enter name to save game (press enter to skip)"
   filename <- prompt "> "
-  if not $ null filename
-    then do
-      saveGame filename game
-      putStrLn $ "Game saved to '" ++ filename ++ "'"
-    else putStrLn "Game not saved"
+  if not $ null filename then do
+    saveGame (filename <> ".sudoku") game
+    putStrLn $ "Game saved to '" <> (filename <> ".sudoku") <> "'"
+  else
+    putStrLn "Game not saved"

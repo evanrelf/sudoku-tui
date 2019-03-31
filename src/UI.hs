@@ -4,33 +4,34 @@ import FileIO
 import Game
 
 import Brick
-import Brick.Widgets.Border (border, borderWithLabel, vBorder, hBorderWithLabel)
+import Brick.Widgets.Border (border, borderWithLabel, hBorderWithLabel, vBorder)
 import Brick.Widgets.Border.Style (unicode, unicodeBold)
 import Brick.Widgets.Center (center)
 import Data.Char (digitToInt)
 import Data.List (intersperse)
-import Data.List.Split(chunksOf)
+import Data.List.Split (chunksOf)
 import Data.Maybe (fromMaybe)
-import Lens.Micro
 import qualified Graphics.Vty as V
+import Lens.Micro
+import System.Directory (doesFileExist)
 
 styleCursor, styleCellGiven, styleCellInput, styleCellNote :: AttrName
-styleSolvedOk, styleSolvedNok :: AttrName
+styleSolved, styleUnsolved :: AttrName
 styleCursor    = attrName "styleCursor"
 styleCellGiven = attrName "styleCellGiven"
 styleCellInput = attrName "styleCellInput"
 styleCellNote  = attrName "styleCellNote"
-styleSolvedOk  = attrName "styleSolvedOk"
-styleSolvedNok  = attrName "styleSolvedNok"
+styleSolved    = attrName "styleSolved"
+styleUnsolved  = attrName "styleUnsolved"
 
 attributes :: AttrMap
 attributes = attrMap V.defAttr
-  [ (styleCursor, bg V.brightBlack)
-  , (styleCellGiven, V.defAttr)
-  , (styleCellInput, fg V.blue)
-  , (styleCellNote, fg V.yellow)
-  , (styleSolvedOk, fg V.green)
-  , (styleSolvedNok, fg V.red)
+  [ (styleCursor    , bg V.brightBlack)
+  , (styleCellGiven , V.defAttr)
+  , (styleCellInput , fg V.blue)
+  , (styleCellNote  , fg V.yellow)
+  , (styleSolved    , fg V.green)
+  , (styleUnsolved  , fg V.red)
   ]
 
 handleEvent :: Game -> BrickEvent () e -> EventM () (Next Game)
@@ -39,7 +40,7 @@ handleEvent game (VtyEvent (V.EvKey key [V.MCtrl])) =
     -- Quit
     V.KChar 'c' -> halt game
     -- Undo
-    V.KChar 'z' -> continue $ fromMaybe game (undoGame game)
+    V.KChar 'z' -> continue $ fromMaybe game (previous game)
     -- Reset
     V.KChar 'r' -> continue . snapshotGame . resetGame $ game
     -- Other
@@ -101,19 +102,20 @@ handleEvent game (VtyEvent (V.EvKey key [])) =
     V.KChar '*' -> toggleNoteCell 8 . snapshotGame $ game
     V.KChar '(' -> toggleNoteCell 9 . snapshotGame $ game
     -- Undo
-    V.KChar 'u' -> fromMaybe game (undoGame game)
+    V.KChar 'u' -> fromMaybe game (previous game)
     -- Other
     _           -> game
 handleEvent game _ = continue game
 
 highlightCursor :: Game -> [[[[Widget ()]]]] -> [[[[Widget ()]]]]
-highlightCursor Game {cursor = (x, y)} widgets =
+highlightCursor game widgets =
   widgets & ix bigRow
           . ix bigCol
           . ix smallRow
           . ix smallCol
           %~ withDefAttr styleCursor
-  where bigRow   = y `div` 3
+  where (x, y) = cursor game
+        bigRow   = y `div` 3
         bigCol   = x `div` 3
         smallRow = y `mod` 3
         smallCol = x `mod` 3
@@ -122,27 +124,27 @@ drawCell :: Cell -> Widget ()
 drawCell cell = center $ case cell of
   Given x -> withAttr styleCellGiven . str $ show x
   Input x  -> withAttr styleCellInput . str $ show x
-  Note xs -> map str xs'
+  Note xs -> fmap str xs'
           & chunksOf 3
-          & map hBox
+          & fmap hBox
           & vBox
           & withAttr styleCellNote
-    where xs' = map f [1..9]
+    where xs' = fmap f [1..9]
           f x = if x `elem` xs then show x else " "
   Empty   -> str " "
 
 drawGrid :: Game -> Widget ()
 drawGrid game =
-  map (`getRegion` game) [0..8]
+  fmap (`getRegion` game) [0..8]
   & chunksOf 3
-  & map (map (map (map drawCell)))
+  & fmap (fmap (fmap (fmap drawCell)))
   & highlightCursor game
-  & map (map (map (intersperse (withBorderStyle unicode vBorder))))
-  & map (map (map hBox))
-  & map (map (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼───────┼")))))
-  & map (map vBox)
-  & map (intersperse (withBorderStyle unicodeBold vBorder))
-  & map hBox
+  & fmap (fmap (fmap (intersperse (withBorderStyle unicode vBorder))))
+  & fmap (fmap (fmap hBox))
+  & fmap (fmap (intersperse (withBorderStyle unicode (hBorderWithLabel (str "┼───────┼")))))
+  & fmap (fmap vBox)
+  & fmap (intersperse (withBorderStyle unicodeBold vBorder))
+  & fmap hBox
   & intersperse (withBorderStyle unicodeBold (hBorderWithLabel (str "╋━━━━━━━━━━━━━━━━━━━━━━━╋")))
   & vBox
   & border
@@ -168,9 +170,10 @@ drawHelp =
   & setAvailableSize (31, 12)
 
 drawDebug :: Game -> Widget ()
-drawDebug game@Game {cursor = (x, y)} =
-  [ "cursor:    (" ++ show x ++ ", " ++ show y ++ ")"
-  , "progress:  " ++ show (progress game) ++ "%"
+drawDebug game =
+  [ "cursor:    (" <> show x <> ", " <> show y <> ")"
+  , "progress:  " <> show (gameProgress game) <> "%"
+  , "solved:    " <> show (gameSolved game)
   ]
   & unlines
   & str
@@ -179,37 +182,37 @@ drawDebug game@Game {cursor = (x, y)} =
   & borderWithLabel (str " Debug ")
   & withBorderStyle unicodeBold
   & hLimit 31
+  where (x, y) = cursor game
 
 drawSolved :: Game -> Widget ()
-drawSolved game = mkWidget
+drawSolved game
+  | completed && solved =
+    str "SOLVED" & withAttr styleSolved & commonModifier
+  | completed && not solved =
+    str "INCORRECT" & withAttr styleUnsolved & commonModifier
+  | otherwise = emptyWidget
   where
-    commonModifier = setAvailableSize (31, 3)
-                   . withBorderStyle unicodeBold
-                   . border
-                   . center
-    isCompleted = progress game == 100
-    isSolved = solved game
-    mkWidget
-      | isCompleted && isSolved =
-          str "SOLVED" & withAttr styleSolvedOk & commonModifier
-      | isCompleted && not isSolved =
-          str "ERROR" & withAttr styleSolvedNok & commonModifier
-      | otherwise = emptyWidget
+    completed = gameProgress game == 100
+    solved    = gameSolved game
+    commonModifier
+      = setAvailableSize (31, 3)
+      . withBorderStyle unicodeBold
+      . border
+      . center
 
 drawUI :: Game -> Widget ()
-drawUI game = drawGrid game <+> (drawHelp
-                                   <=>
-                                 drawDebug game
-                                   <=>
-                                 drawSolved game
-                                 )
+drawUI game =
+  drawGrid game <+> ( drawHelp
+                <=>   drawDebug game
+                <=>   drawSolved game
+                    )
 
 app :: App Game e ()
 app = App
   { appDraw         = \x -> [drawUI x]
   , appChooseCursor = neverShowCursor
   , appHandleEvent  = handleEvent
-  , appStartEvent   = return
+  , appStartEvent   = pure
   , appAttrMap      = const attributes
   }
 
@@ -231,18 +234,26 @@ main = do
       saveGame "autosave.sudoku" endGame
     '2' -> do
       filename <- prompt "Filename: "
-      game <- loadGame filename
-      endGame <- defaultMain app game
-      promptSave endGame
-      saveGame "autosave.sudoku" endGame
+      exists <- doesFileExist filename
+      if exists then do
+        game <- loadGame filename
+        endGame <- defaultMain app game
+        promptSave endGame
+        saveGame "autosave.sudoku" endGame
+      else
+        putStrLn $ "File '" <> filename <> "' does not exist"
     '3' -> do
-      game <- loadGame "autosave.sudoku"
-      endGame <- defaultMain app game
-      promptSave endGame
-      saveGame "autosave.sudoku" endGame
+      exists <- doesFileExist "autosave.sudoku"
+      if exists then do
+        game <- loadGame "autosave.sudoku"
+        endGame <- defaultMain app game
+        promptSave endGame
+        saveGame "autosave.sudoku" endGame
+      else
+        putStrLn "File 'autosave.sudoku' does not exist"
     '4' -> do
       gameString <- prompt "Game string: "
-      let game = (mkGame . map digitToInt) gameString
+      let game = (mkGame . fmap digitToInt) gameString
       endGame <- defaultMain app game
       promptSave endGame
       saveGame "autosave.sudoku" endGame
